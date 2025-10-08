@@ -1,10 +1,16 @@
+import os
 import logging
-from typing import Union
+from typing import Union, List, Tuple
 
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torch.distributed as dist
+from torch.nn.parallel import DistributedDataParallel as DDP
+from torch.utils.data import Dataset, DataLoader
+from torch.utils.data.distributed import DistributedSampler
+
 from pactus.dataset import Data
 from pactus.models import Model
 from pactus.models.evaluation import Evaluation
@@ -14,34 +20,58 @@ from .trajformer import TrajFormer
 NAME = "trajformer_model"
 
 
+# ====================== DDP helpers =======================
+def _is_distributed() -> bool:
+    return int(os.environ.get("WORLD_SIZE", "1")) > 1
+
+def _setup_ddp():
+    if _is_distributed():
+        dist.init_process_group(backend="nccl")
+        torch.cuda.set_device(int(os.environ["LOCAL_RANK"]))
+
+def _cleanup_ddp():
+    if _is_distributed():
+        dist.destroy_process_group()
+
+def _is_main_process() -> bool:
+    return (not _is_distributed()) or dist.get_rank() == 0
+
+
+# ==================== Simple TensorDataset ================
+class _TensorTrajDataset(Dataset):
+    def __init__(self, x, m, d, y):
+        self.x, self.m, self.d, self.y = x, m, d, y
+    def __len__(self): return self.x.shape[0]
+    def __getitem__(self, i): return self.x[i], self.m[i], self.d[i], self.y[i]
+
+
 class TrajFormerWrapper(nn.Module):
-    """Wrapper for TrajFormer model to handle device compatibility."""
-    
+    """Wrapper cho TrajFormer để đảm bảo vào/ra đúng device (hữu ích cho DP/DDP)."""
+
     def __init__(self, model, device):
         super().__init__()
-        self.model = model
+        self.model = model.to(device)
         self.device = device
-        
+
     def forward(self, x_trajs, masks, distances):
         # Move inputs to the correct device
-        x_trajs = x_trajs.to(self.device)
-        masks = masks.to(self.device)
-        distances = distances.to(self.device)
-        
+        x_trajs = x_trajs.to(self.device, non_blocking=True)
+        masks = masks.to(self.device, non_blocking=True)
+        distances = distances.to(self.device, non_blocking=True)
         # Forward pass through the base model
         return self.model(x_trajs, masks, distances)
-    
+
     def train(self, mode=True):
         self.model.train(mode)
         return self
-        
+
     def eval(self):
         self.model.eval()
         return self
 
 
 class TrajFormerModel(Model):
-    """Implementation of TrajFormer model for trajectory classification."""
+    """Implementation of TrajFormer model for trajectory classification (DDP-ready)."""
 
     def __init__(
         self,
@@ -56,7 +86,7 @@ class TrajFormerModel(Model):
         cpe_layers=1,
         metrics=None,
         random_state: Union[int, None] = None,
-        device="mps" if torch.cuda.is_available() else "cpu",
+        device="cuda" if torch.cuda.is_available() else "cpu",
     ):
         super().__init__(NAME)
         self.c_in = c_in
@@ -70,7 +100,7 @@ class TrajFormerModel(Model):
         self.cpe_layers = cpe_layers
         self.metrics = ["accuracy"] if metrics is None else metrics
         self.random_state = random_state
-        self.device = device
+        self.device = torch.device(device if torch.cuda.is_available() else "cpu")
         self.encoder = None
         self.labels = None
         self.model = None
@@ -89,46 +119,114 @@ class TrajFormerModel(Model):
             metrics=self.metrics,
         )
 
+    # ---------------------- TRAIN (DDP) ----------------------
     def train(self, data: Data, original_data: Data, training=True, **kwargs):
-        if self.random_state is not None:
-            torch.manual_seed(self.random_state)
-            np.random.seed(self.random_state)
-            logging.warning(
-                f"Custom seed provided for {self.name} model. This "
-                "sets random seeds for python, numpy, and PyTorch."
+        _setup_ddp()
+        try:
+            if self.random_state is not None:
+                torch.manual_seed(self.random_state)
+                np.random.seed(self.random_state)
+                logging.warning(
+                    f"Custom seed provided for {self.name} model. This "
+                    "sets random seeds for python, numpy, and PyTorch."
+                )
+
+            # Init encoder/labels
+            self.encoder = LabelEncoder()
+            self.labels = data.labels
+            y_encoded = self.encoder.fit_transform(self.labels)
+
+            # Device theo LOCAL_RANK nếu DDP
+            if _is_distributed():
+                local_rank = int(os.environ["LOCAL_RANK"])
+                self.device = torch.device(f"cuda:{local_rank}")
+            else:
+                self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+            # Create base TrajFormer model
+            base_model = TrajFormer(
+                name=self.name,
+                c_in=self.c_in,
+                c_out=self.c_out,
+                trans_layers=self.trans_layers,
+                n_heads=self.n_heads,
+                token_dim=self.token_dim,
+                kv_pool=self.kv_pool,
+                mlp_dim=self.mlp_dim,
+                max_points=self.max_points,
+                cpe_layers=self.cpe_layers,
+                device=str(self.device),
+            ).to(self.device)
+
+            # Wrap model (wrapper giữ trách nhiệm move input sang device)
+            self.model = TrajFormerWrapper(base_model, self.device)
+
+            # DDP wrap **inner module** nếu nhiều GPU
+            if _is_distributed():
+                self.model.model = DDP(
+                    self.model.model,
+                    device_ids=[self.device.index],
+                    output_device=self.device.index,
+                    find_unused_parameters=False,
+                )
+
+            # Chuẩn bị dữ liệu (tensors trên CPU; wrapper sẽ .to(device) khi forward)
+            x_trajs, masks, distances = self._prepare_data(data)
+            y_tensor = torch.tensor(y_encoded, dtype=torch.long)
+
+            # DataLoader + DistributedSampler
+            ds = _TensorTrajDataset(x_trajs, masks, distances, y_tensor)
+            if _is_distributed():
+                sampler = DistributedSampler(ds, shuffle=True, drop_last=False)
+                shuffle = False
+            else:
+                sampler = None
+                shuffle = True
+
+            batch_size = kwargs.get("batch_size", 64)  # batch MỖI GPU
+            loader = DataLoader(
+                ds,
+                batch_size=batch_size,
+                shuffle=shuffle,
+                sampler=sampler,
+                num_workers=4,
+                pin_memory=True,
+                persistent_workers=False,
             )
 
-        # Initialize the encoder and store labels
-        self.encoder = LabelEncoder()
-        self.labels = data.labels
-        y_encoded = self.encoder.fit_transform(self.labels)
+            # Optim/loss
+            optimizer = torch.optim.Adam(self.model.parameters(), lr=kwargs.get("learning_rate", 0.001))
+            criterion = nn.CrossEntropyLoss().to(self.device)
 
-        # Create and initialize the base TrajFormer model
-        base_model = TrajFormer(
-            name=self.name,
-            c_in=self.c_in,
-            c_out=self.c_out,
-            trans_layers=self.trans_layers,
-            n_heads=self.n_heads,
-            token_dim=self.token_dim,
-            kv_pool=self.kv_pool,
-            mlp_dim=self.mlp_dim,
-            max_points=self.max_points,
-            cpe_layers=self.cpe_layers,
-            device=self.device,  # Pass the device parameter
-        ).to(self.device)
+            n_epochs = kwargs.get("n_epochs", 10)
+            self.model.train()
 
-        # Wrap the base model with our wrapper to handle CUDA/CPU compatibility
-        self.model = TrajFormerWrapper(base_model, self.device)
+            for epoch in range(n_epochs):
+                if _is_distributed():
+                    sampler.set_epoch(epoch)  # đảm bảo shuffling khác nhau giữa epoch
 
-        # Convert data to the format expected by TrajFormer
-        x_trajs, masks, distances = self._prepare_data(data)
+                total_loss = 0.0
+                for bx, bm, bd, by in loader:
+                    by = by.to(self.device, non_blocking=True)
 
-        # Training loop implementation
-        self._train_model(x_trajs, masks, distances, y_encoded, **kwargs)
+                    optimizer.zero_grad(set_to_none=True)
+                    outputs = self.model(bx, bm, bd)
+                    loss = criterion(outputs, by)
+                    loss.backward()
+                    optimizer.step()
 
-        logging.info(f"Trained TrajFormer model with {len(self.labels)} samples")
+                    total_loss += float(loss.detach().cpu())
 
+                if _is_main_process() and ((epoch + 1) % 2 == 0 or epoch == n_epochs - 1):
+                    logging.info(f"Epoch {epoch+1}/{n_epochs}, Loss: {total_loss:.4f}")
+
+            if _is_main_process():
+                logging.info(f"Trained TrajFormer model (DDP) with {len(self.labels)} samples")
+
+        finally:
+            _cleanup_ddp()
+
+    # ---------------------- PREDICT ----------------------
     def predict(self, data: Data) -> np.ndarray:
         """
         Predict class probabilities for each trajectory
@@ -165,162 +263,112 @@ class TrajFormerModel(Model):
 
         return Evaluation.from_data(data, predictions, self.summary)
 
-    def _train_model(self, x_trajs, masks, distances, y_encoded, **kwargs):
-        """Train the model with the prepared data"""
-        # Set up optimizer and loss function
-        optimizer = torch.optim.Adam(
-            self.model.parameters(), lr=kwargs.get("learning_rate", 0.001)
-        )
-        criterion = nn.CrossEntropyLoss()
-
-        # Training loop
-        self.model.train()
-        n_epochs = kwargs.get("n_epochs", 10)
-        batch_size = kwargs.get("batch_size", 32)
-
-        # Convert to PyTorch tensors and move to the right device
-        y_tensor = torch.tensor(y_encoded, dtype=torch.long).to(self.device)
-
-        for epoch in range(n_epochs):
-            # Mini-batch training
-            total_loss = 0
-            for i in range(0, len(x_trajs), batch_size):
-                batch_x = x_trajs[i : i + batch_size]  # Move to device inside wrapper
-                batch_masks = masks[i : i + batch_size]
-                batch_distances = distances[i : i + batch_size]
-                batch_y = y_tensor[i : i + batch_size]
-
-                optimizer.zero_grad()
-                outputs = self.model(batch_x, batch_masks, batch_distances)
-                loss = criterion(outputs, batch_y)
-                loss.backward()
-                optimizer.step()
-
-                total_loss += loss.item()
-
-            if (epoch + 1) % 10 == 0:
-                logging.info(f"Epoch {epoch+1}/{n_epochs}, Loss: {total_loss:.4f}")
-
-    def _prepare_data(self, data: Data):
+    # ---------------------- DATA PIPE ----------------------
+    def _prepare_data(self, data: Data) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Convert data from pactus format to TrajFormer input format
 
         Returns:
-            x_trajs: tensor of trajectory features
-            masks: attention masks
-            distances: distance matrices for CPE
+            x_trajs: [B, max_points, c_in] float32
+            masks:   [B, max_points] bool (True = PAD)
+            distances: [B, max_points, 9, 2] float32
         """
-        # Implement data conversion based on actual data structure
-        # This is a simplified implementation that should be customized
+        all_features: List[np.ndarray] = []
+        all_masks: List[torch.Tensor] = []
+        all_distances: List[np.ndarray] = []
 
-        all_features = []
-        all_masks = []
-        all_distances = []
+        kernel_size = 9
 
         for traj in data.trajs:
             # Extract coordinates, time, etc.
-            coords = np.array(traj.r)  # coordinates
-            times = np.array(traj.t)  # timestamps
+            coords = np.asarray(traj.r, dtype=np.float32)   # [N, 2]
+            times = np.asarray(traj.t, dtype=np.float32) if hasattr(traj, "t") else None
 
             # Calculate features (speeds, accelerations, etc.)
-            features = self._extract_features(coords, times)
+            feats = self._extract_features(coords, times)   # [N, c_in]
+            n = feats.shape[0]
+            n_clip = min(n, self.max_points)
 
-            # Pad or truncate to max_points
-            if len(features) > self.max_points:
-                features = features[: self.max_points]
+            # Pad/truncate features to max_points
+            x = np.zeros((self.max_points, self.c_in), dtype=np.float32)
+            if n_clip > 0:
+                x[:n_clip] = feats[:n_clip]
 
-            # Create mask (False for actual data, True for padding)
-            mask = torch.zeros(self.max_points, dtype=torch.bool)
-            if len(features) < self.max_points:
-                # Pad features
-                padding = np.zeros((self.max_points - len(features), self.c_in))
-                features = np.vstack([features, padding])
-                # Set mask for padded values
-                mask[len(features) :] = True
+            # Create mask (False for data, True for padding)
+            mask = torch.ones(self.max_points, dtype=torch.bool)
+            mask[:n_clip] = False
 
-            # Calculate distance matrix for CPE
-            dist_matrix = self._calculate_distances(coords)
+            # Calculate distance matrix for CPE (truncate to n_clip, then pad to max_points)
+            dist_matrix = self._calculate_distances(coords[:n_clip])
+            if dist_matrix.shape[0] < self.max_points:
+                pad = np.zeros((self.max_points - dist_matrix.shape[0], kernel_size, 2), dtype=np.float32)
+                dist_matrix = np.concatenate([dist_matrix, pad], axis=0)
 
-            all_features.append(features)
+            all_features.append(x)
             all_masks.append(mask)
             all_distances.append(dist_matrix)
 
         # Convert to tensors
         return (
-            torch.tensor(np.array(all_features), dtype=torch.float32),
-            torch.stack(all_masks),
-            torch.tensor(np.array(all_distances), dtype=torch.float32),
+            torch.from_numpy(np.stack(all_features, axis=0)),        # [B, T, C]
+            torch.stack(all_masks, dim=0),                           # [B, T]
+            torch.from_numpy(np.stack(all_distances, axis=0)),       # [B, T, 9, 2]
         )
 
-    def _extract_features(self, coords, times):
-        """Extract features from trajectory coordinates and times"""
-        n_points = len(coords)
-        features = np.zeros((n_points, self.c_in))
+    def _extract_features(self, coords: np.ndarray, times: Union[np.ndarray, None]):
+        """Extract features from trajectory coordinates and times: [lat, lng, dt, dd, speed, accel]."""
+        n_points = coords.shape[0]
+        features = np.zeros((n_points, self.c_in), dtype=np.float32)
 
-        # Set lat, lng
-        features[:, 0] = coords[:, 0]  # latitude
-        features[:, 1] = coords[:, 1]  # longitude
+        if n_points == 0:
+            return features
+
+        # lat, lng
+        features[:, 0] = coords[:, 0]
+        features[:, 1] = coords[:, 1]
 
         # Calculate time differences
-        if n_points > 1 and len(times) == n_points:
-            # Use provided times if available
-            dt = np.diff(times, prepend=times[0])
-            features[:, 2] = dt  # delta time
-            
-            # Calculate distances between consecutive points
+        if n_points > 1 and times is not None and times.shape[0] == n_points:
+            dt = np.diff(times, prepend=times[0]).astype(np.float32)
+        else:
+            dt = np.ones(n_points, dtype=np.float32)
+        features[:, 2] = dt  # delta time
+
+        # Calculate distances between consecutive points
+        if n_points > 1:
             dx = np.diff(coords[:, 0], prepend=coords[0, 0])
             dy = np.diff(coords[:, 1], prepend=coords[0, 1])
-            distances = np.sqrt(dx**2 + dy**2)
-            features[:, 3] = distances  # delta distance
-
-            # Calculate speeds
-            with np.errstate(divide="ignore", invalid="ignore"):
-                speeds = np.zeros_like(dt)
-                valid_dt = dt > 0
-                speeds[valid_dt] = distances[valid_dt] / dt[valid_dt]
-            features[:, 4] = speeds  # speed
-
-            # Calculate accelerations
-            accels = np.diff(speeds, prepend=speeds[0])
-            features[:, 5] = accels  # acceleration
+            dd = np.sqrt(dx**2 + dy**2).astype(np.float32)
         else:
-            # If no time data or only one point, use synthetic time (equal intervals)
-            synthetic_times = np.arange(n_points)
-            
-            # Recalculate all features with synthetic time
-            dt = np.ones(n_points)  # constant time steps
-            features[:, 2] = dt  # delta time
-            
-            # Calculate distances
-            if n_points > 1:
-                dx = np.diff(coords[:, 0], prepend=coords[0, 0])
-                dy = np.diff(coords[:, 1], prepend=coords[0, 1])
-                distances = np.sqrt(dx**2 + dy**2)
-                features[:, 3] = distances  # delta distance
-                
-                # Use distances as speed (since dt=1)
-                features[:, 4] = distances  # speed
-                
-                # Calculate accelerations
-                accels = np.diff(distances, prepend=distances[0])
-                features[:, 5] = accels  # acceleration
+            dd = np.zeros(n_points, dtype=np.float32)
+        features[:, 3] = dd  # delta distance
+
+        # Speeds
+        with np.errstate(divide="ignore", invalid="ignore"):
+            speeds = np.zeros_like(dt, dtype=np.float32)
+            valid_dt = dt > 0
+            speeds[valid_dt] = dd[valid_dt] / dt[valid_dt]
+        features[:, 4] = speeds  # speed
+
+        # Accelerations
+        accels = np.diff(speeds, prepend=speeds[0]).astype(np.float32)
+        features[:, 5] = accels  # acceleration
 
         return features
 
-    def _calculate_distances(self, coords):
-        """Calculate distance matrix for CPE module"""
-        n_points = min(len(coords), self.max_points)
+    def _calculate_distances(self, coords: np.ndarray):
+        """Calculate distance matrix for CPE module. Returns [T, 9, 2] padded later to [max_points, 9, 2]."""
+        n_points = min(coords.shape[0], self.max_points)
         kernel_size = 9
-        distances = np.zeros((self.max_points, kernel_size, 2))
+        distances = np.zeros((n_points, kernel_size, 2), dtype=np.float32)
 
-        # For each point, calculate distances to kernel_size neighbors
         half_k = kernel_size // 2
         for i in range(n_points):
             for j in range(kernel_size):
                 idx = i - half_k + j
                 if 0 <= idx < n_points:
-                    # Calculate distance components
-                    distances[i, j, 0] = coords[idx, 0] - coords[i, 0]  # delta lat
-                    distances[i, j, 1] = coords[idx, 1] - coords[i, 1]  # delta lng
+                    # delta lat/lng
+                    distances[i, j, 0] = coords[idx, 0] - coords[i, 0]
+                    distances[i, j, 1] = coords[idx, 1] - coords[i, 1]
 
         return distances
