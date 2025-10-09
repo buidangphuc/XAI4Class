@@ -1,0 +1,16 @@
+EXPERIMENT SUMMARY
+==================
+
+                    accuracy            eval_seconds            f1_score           
+model                    GRU TrajFormer          GRU TrajFormer      GRU TrajFormer
+dataset                                                                            
+animals               0.6115      0.612     0.088066   0.079681   0.3965     0.4755
+geolife               0.5220      0.504     3.086252   3.130751   0.2230     0.2340
+hurdat2               0.5220      0.520     0.028782   0.327739   0.1920     0.2010
+mnist_stroke          0.9770      0.978     0.503928  13.622350   0.9760     0.9780
+seabird                  NaN      0.576          NaN   0.080141      NaN     0.2440
+uci_characters        0.8860      0.932     0.039564   1.002845   0.8660     0.9250
+uci_gotrack           0.9510      0.976     0.048126   0.055825   0.9500     0.9750
+uci_movement_libras   0.1560      0.275     0.012309   0.083571   0.0560     0.2060
+uci_pen_digits        0.9830      0.982     0.044983   1.134179   0.9830     0.9820
+vehicle               0.7130      0.678     0.081360   0.151967   0.4160     0.6290

@@ -1,0 +1,51 @@
+ERROR SUMMARY
+=============
+
+Dataset: geolife, Model: LSTM
+Error: {{function_node __wrapped__Sign_device_/job:localhost/replica:0/task:0/device:GPU:0}} JIT compilation failed. [Op:Sign] name: 
+--------------------------------------------------
+Dataset: animals, Model: LSTM
+Error: {{function_node __wrapped__Sign_device_/job:localhost/replica:0/task:0/device:GPU:0}} JIT compilation failed. [Op:Sign] name: 
+--------------------------------------------------
+Dataset: animals, Model: LSTM
+Error: {{function_node __wrapped__Sign_device_/job:localhost/replica:0/task:0/device:GPU:0}} JIT compilation failed. [Op:Sign] name: 
+--------------------------------------------------
+Dataset: hurdat2, Model: LSTM
+Error: {{function_node __wrapped__Sign_device_/job:localhost/replica:0/task:0/device:GPU:0}} JIT compilation failed. [Op:Sign] name: 
+--------------------------------------------------
+Dataset: cma_bst, Model: nan
+Error: The least populated class in y has only 1 member, which is too few. The minimum number of groups for any class cannot be less than 2.
+--------------------------------------------------
+Dataset: mnist_stroke, Model: LSTM
+Error: {{function_node __wrapped__Sign_device_/job:localhost/replica:0/task:0/device:GPU:0}} JIT compilation failed. [Op:Sign] name: 
+--------------------------------------------------
+Dataset: uci_pen_digits, Model: LSTM
+Error: {{function_node __wrapped__Sign_device_/job:localhost/replica:0/task:0/device:GPU:0}} JIT compilation failed. [Op:Sign] name: 
+--------------------------------------------------
+Dataset: uci_gotrack, Model: LSTM
+Error: {{function_node __wrapped__Sign_device_/job:localhost/replica:0/task:0/device:GPU:0}} JIT compilation failed. [Op:Sign] name: 
+--------------------------------------------------
+Dataset: uci_characters, Model: LSTM
+Error: {{function_node __wrapped__Sign_device_/job:localhost/replica:0/task:0/device:GPU:0}} JIT compilation failed. [Op:Sign] name: 
+--------------------------------------------------
+Dataset: uci_movement_libras, Model: LSTM
+Error: {{function_node __wrapped__Sign_device_/job:localhost/replica:0/task:0/device:GPU:0}} JIT compilation failed. [Op:Sign] name: 
+--------------------------------------------------
+Dataset: seabird, Model: GRU
+Error: could not broadcast input array from shape (2286,4) into shape (2286,3)
+--------------------------------------------------
+Dataset: seabird, Model: LSTM
+Error: {{function_node __wrapped__Sign_device_/job:localhost/replica:0/task:0/device:GPU:0}} JIT compilation failed. [Op:Sign] name: 
+--------------------------------------------------
+Dataset: taxi, Model: TrajFormer
+Error: CUDA out of memory. Tried to allocate 107.77 GiB. GPU 0 has a total capacity of 31.73 GiB of which 13.55 GiB is free. Including non-PyTorch memory, this process has 18.18 GiB memory in use. Of the allocated memory 16.58 GiB is allocated by PyTorch, and 1.22 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+--------------------------------------------------
+Dataset: taxi, Model: GRU
+Error: CUDA out of memory. Tried to allocate 50.83 GiB. GPU 0 has a total capacity of 31.73 GiB of which 31.30 GiB is free. Including non-PyTorch memory, this process has 438.00 MiB memory in use. Of the allocated memory 17.44 MiB is allocated by PyTorch, and 30.56 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+--------------------------------------------------
+Dataset: taxi, Model: LSTM
+Error: {{function_node __wrapped__Sign_device_/job:localhost/replica:0/task:0/device:GPU:0}} JIT compilation failed. [Op:Sign] name: 
+--------------------------------------------------
+Dataset: vehicle, Model: LSTM
+Error: {{function_node __wrapped__Sign_device_/job:localhost/replica:0/task:0/device:GPU:0}} JIT compilation failed. [Op:Sign] name: 
+--------------------------------------------------

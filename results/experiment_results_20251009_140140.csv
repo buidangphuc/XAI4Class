@@ -1,0 +1,38 @@
+model,dataset,accuracy,f1_score,eval_seconds,throughput_samples_per_s,n_samples,error
+TrajFormer,geolife,0.504,0.234,3.1307513860519975,890.2016341561117,2787.0,
+GRU,geolife,0.522,0.223,3.0862522720126435,903.0370022806037,2787.0,
+LSTM,geolife,,,,,,{{function_node __wrapped__Sign_device_/job:localhost/replica:0/task:0/device:GPU:0}} JIT compilation failed. [Op:Sign] name: 
+TrajFormer,animals,0.579,0.386,0.11452474002726376,663.612071783856,76.0,
+GRU,animals,0.513,0.226,0.1553208880359307,489.3095897212406,76.0,
+LSTM,animals,,,,,,{{function_node __wrapped__Sign_device_/job:localhost/replica:0/task:0/device:GPU:0}} JIT compilation failed. [Op:Sign] name: 
+TrajFormer,animals,0.645,0.565,0.04483818495646119,691.3749972284035,31.0,
+GRU,animals,0.71,0.567,0.020810183021239936,1489.6553273154693,31.0,
+LSTM,animals,,,,,,{{function_node __wrapped__Sign_device_/job:localhost/replica:0/task:0/device:GPU:0}} JIT compilation failed. [Op:Sign] name: 
+TrajFormer,hurdat2,0.52,0.201,0.3277389509603381,1742.2402748494198,571.0,
+GRU,hurdat2,0.522,0.192,0.028782372013665736,19838.531714095414,571.0,
+LSTM,hurdat2,,,,,,{{function_node __wrapped__Sign_device_/job:localhost/replica:0/task:0/device:GPU:0}} JIT compilation failed. [Op:Sign] name: 
+,cma_bst,,,,,,"The least populated class in y has only 1 member, which is too few. The minimum number of groups for any class cannot be less than 2."
+TrajFormer,mnist_stroke,0.978,0.978,13.622350151999854,1541.5842175307068,21000.0,
+GRU,mnist_stroke,0.977,0.976,0.5039283799706027,41672.58847621375,21000.0,
+LSTM,mnist_stroke,,,,,,{{function_node __wrapped__Sign_device_/job:localhost/replica:0/task:0/device:GPU:0}} JIT compilation failed. [Op:Sign] name: 
+TrajFormer,uci_pen_digits,0.982,0.982,1.1341785650001839,2907.8313607517925,3298.0,
+GRU,uci_pen_digits,0.983,0.983,0.04498272098135203,73317.0410337608,3298.0,
+LSTM,uci_pen_digits,,,,,,{{function_node __wrapped__Sign_device_/job:localhost/replica:0/task:0/device:GPU:0}} JIT compilation failed. [Op:Sign] name: 
+TrajFormer,uci_gotrack,0.976,0.975,0.055824614013545215,734.4430539197604,41.0,
+GRU,uci_gotrack,0.951,0.95,0.04812552698422223,851.9387229451365,41.0,
+LSTM,uci_gotrack,,,,,,{{function_node __wrapped__Sign_device_/job:localhost/replica:0/task:0/device:GPU:0}} JIT compilation failed. [Op:Sign] name: 
+TrajFormer,uci_characters,0.932,0.925,1.0028448910452425,855.566007925439,858.0,
+GRU,uci_characters,0.886,0.866,0.039563875063322484,21686.450041275282,858.0,
+LSTM,uci_characters,,,,,,{{function_node __wrapped__Sign_device_/job:localhost/replica:0/task:0/device:GPU:0}} JIT compilation failed. [Op:Sign] name: 
+TrajFormer,uci_movement_libras,0.275,0.206,0.08357145497575402,1304.273092189473,109.0,
+GRU,uci_movement_libras,0.156,0.056,0.012308923993259668,8855.36380431694,109.0,
+LSTM,uci_movement_libras,,,,,,{{function_node __wrapped__Sign_device_/job:localhost/replica:0/task:0/device:GPU:0}} JIT compilation failed. [Op:Sign] name: 
+TrajFormer,seabird,0.576,0.244,0.08014074305538088,411.775568105171,33.0,
+GRU,seabird,,,,,,"could not broadcast input array from shape (2286,4) into shape (2286,3)"
+LSTM,seabird,,,,,,{{function_node __wrapped__Sign_device_/job:localhost/replica:0/task:0/device:GPU:0}} JIT compilation failed. [Op:Sign] name: 
+TrajFormer,taxi,,,,,,"CUDA out of memory. Tried to allocate 107.77 GiB. GPU 0 has a total capacity of 31.73 GiB of which 13.55 GiB is free. Including non-PyTorch memory, this process has 18.18 GiB memory in use. Of the allocated memory 16.58 GiB is allocated by PyTorch, and 1.22 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)"
+GRU,taxi,,,,,,"CUDA out of memory. Tried to allocate 50.83 GiB. GPU 0 has a total capacity of 31.73 GiB of which 31.30 GiB is free. Including non-PyTorch memory, this process has 438.00 MiB memory in use. Of the allocated memory 17.44 MiB is allocated by PyTorch, and 30.56 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)"
+LSTM,taxi,,,,,,{{function_node __wrapped__Sign_device_/job:localhost/replica:0/task:0/device:GPU:0}} JIT compilation failed. [Op:Sign] name: 
+TrajFormer,vehicle,0.678,0.629,0.15196706901770085,756.7428966245642,115.0,
+GRU,vehicle,0.713,0.416,0.0813596099615097,1413.4777693059882,115.0,
+LSTM,vehicle,,,,,,{{function_node __wrapped__Sign_device_/job:localhost/replica:0/task:0/device:GPU:0}} JIT compilation failed. [Op:Sign] name: 

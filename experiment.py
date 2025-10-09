@@ -1,14 +1,22 @@
 # =============================================================================
+# IMPORTS (ESSENTIAL)
+# =============================================================================
+import os
+
+# =============================================================================
 # CONFIGURATION
 # =============================================================================
 SEED = 3112
 NO_OF_EPOCHS = 20
 BATCH_SIZE = 32
 
+# Output directory for results
+OUTPUT_DIR = "/home/phucbuidang/Work/XAI4Class/results"
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+
 # =============================================================================
 # IMPORTS
 # =============================================================================
-import os
 import ast
 import io
 import re
@@ -16,6 +24,7 @@ import time
 import contextlib
 import traceback
 from collections import Counter
+from datetime import datetime
 
 import pandas as pd
 import numpy as np
@@ -69,6 +78,24 @@ pd.set_option("display.expand_frame_repr", False)
 BASE_DIR = "/home/phucbuidang/Work/XAI4Class/dataset"
 
 # =============================================================================
+# FILE OUTPUT UTILITIES
+# =============================================================================
+
+class FileLogger:
+    def __init__(self, output_dir):
+        self.output_dir = output_dir
+        self.log_file = os.path.join(output_dir, f"experiment_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt")
+        
+    def log(self, message):
+        """Write message to both console and log file"""
+        print(message)
+        with open(self.log_file, 'a', encoding='utf-8') as f:
+            f.write(message + '\n')
+
+# Initialize logger
+logger = FileLogger(OUTPUT_DIR)
+
+# =============================================================================
 # DATASET LOADING FUNCTIONS
 # =============================================================================
 
@@ -110,17 +137,19 @@ def load_animals_dataset():
 
             # Create a pactus Dataset
             animals_ds = Dataset("animals", trajs, labels)
-            print(
-                f"Animals dataset loaded from CSV: {len(trajs)} trajectories "
-                f"with labels {set(labels)}"
-            )
-            return animals_ds
+            if animals_ds:
+                msg = f"Animals dataset loaded from CSV: {len(trajs)} trajectories with labels {set(labels)}"
+                logger.log(msg)
+                return animals_ds
+            else:
+                logger.log(f"Animals CSV file not found at {animals_csv_path}")
+                return None
         else:
-            print(f"Animals CSV file not found at {animals_csv_path}")
+            logger.log(f"Animals CSV file not found at {animals_csv_path}")
             return None
 
     except Exception as e:
-        print(f"Error loading animals dataset: {e}")
+        logger.log(f"Error loading animals dataset: {e}")
         return None
 
 
@@ -161,17 +190,19 @@ def load_seabird_dataset():
 
             # Create a pactus Dataset
             seabird_ds = Dataset("seabird", trajs, labels)
-            print(
-                f"Seabird dataset loaded: {len(trajs)} trajectories "
-                f"with labels {set(labels)}"
-            )
-            return seabird_ds
+            if seabird_ds:
+                msg = f"Seabird dataset loaded: {len(trajs)} trajectories with labels {set(labels)}"
+                logger.log(msg)
+                return seabird_ds
+            else:
+                logger.log(f"Seabird CSV file not found at {seabird_csv_path}")
+                return None
         else:
-            print(f"Seabird CSV file not found at {seabird_csv_path}")
+            logger.log(f"Seabird CSV file not found at {seabird_csv_path}")
             return None
 
     except Exception as e:
-        print(f"Error loading seabird dataset: {e}")
+        logger.log(f"Error loading seabird dataset: {e}")
         return None
 
 
@@ -200,7 +231,7 @@ def load_taxi_dataset():
 
                     # Skip if there aren't enough points to form a trajectory
                     if len(polyline) < 2:
-                        print(f"Skipping row {idx}: Not enough points in trajectory")
+                        logger.log(f"Skipping row {idx}: Not enough points in trajectory")
                         continue
 
                     # Extract x (longitude) and y (latitude) coordinates
@@ -221,26 +252,24 @@ def load_taxi_dataset():
                     labels.append(row["CALL_TYPE"])
 
                 except Exception as e:
-                    print(f"Error processing taxi row {idx}: {e}")
+                    logger.log(f"Error processing taxi row {idx}: {e}")
                     continue
 
             # Create dataset if we have valid trajectories
             if trajs:
                 taxi_ds = Dataset("taxi", trajs, labels)
-                print(
-                    f"Taxi dataset loaded: {len(trajs)} trajectories "
-                    f"with labels {set(labels)}"
-                )
+                msg = f"Taxi dataset loaded: {len(trajs)} trajectories with labels {set(labels)}"
+                logger.log(msg)
                 return taxi_ds
             else:
-                print("No taxi trajectories were loaded.")
+                logger.log("No taxi trajectories were loaded.")
                 return None
         else:
-            print(f"Taxi CSV file not found at {taxi_csv_path}")
+            logger.log(f"Taxi CSV file not found at {taxi_csv_path}")
             return None
 
     except Exception as e:
-        print(f"Error loading taxi dataset: {e}")
+        logger.log(f"Error loading taxi dataset: {e}")
         return None
 
 
@@ -322,7 +351,7 @@ def load_vehicle_dataset():
                             if point:
                                 points.append(point)
                 except Exception as e:
-                    print(f"Error reading {file_path}: {e}")
+                    logger.log(f"Error reading {file_path}: {e}")
                     continue
 
                 if not points:
@@ -343,23 +372,21 @@ def load_vehicle_dataset():
                     trajs.append(traj)
                     labels.append(label)
                 except Exception as e:
-                    print(f"Error creating trajectory for {file_path}: {e}")
+                    logger.log(f"Error creating trajectory for {file_path}: {e}")
                     continue
 
         # Create a pactus Dataset if we have trajectories
         if trajs:
             vehicle_ds = Dataset("vehicle", trajs, labels)
-            print(
-                f"Vehicle dataset loaded: {len(trajs)} trajectories "
-                f"with labels {set(labels)}"
-            )
+            msg = f"Vehicle dataset loaded: {len(trajs)} trajectories with labels {set(labels)}"
+            logger.log(msg)
             return vehicle_ds
         else:
-            print("No vehicle trajectories were loaded.")
+            logger.log("No vehicle trajectories were loaded.")
             return None
 
     except Exception as e:
-        print(f"Error loading vehicle dataset: {e}")
+        logger.log(f"Error loading vehicle dataset: {e}")
         return None
 
 
@@ -373,11 +400,12 @@ seabird_dataset = load_seabird_dataset()
 taxi_dataset = load_taxi_dataset()
 vehicle_dataset = load_vehicle_dataset()
 
-# Display summaries
+# Display summaries to file
+logger.log("=== DATASET SUMMARIES ===")
 for dataset in [animals_loaded_dataset, seabird_dataset, taxi_dataset, vehicle_dataset]:
     if dataset is not None:
-        print(f"Dataset name: {dataset.name}")
-        print(f"Labels: {set(dataset.labels)}")
+        logger.log(f"Dataset name: {dataset.name}")
+        logger.log(f"Labels: {set(dataset.labels)}")
 
 # Load built-in datasets
 geolife_dataset = Dataset.geolife()
@@ -445,7 +473,7 @@ def run_model(train_data: Dataset, test_data: Dataset, dataset: Dataset):
     ]
 
     for name, model in models:
-        print(f"\n===== Running {name} Experiment =====")
+        logger.log(f"\n===== Running {name} Experiment =====")
 
         try:
             # Additional GPU memory clearing for TensorFlow models
@@ -491,22 +519,19 @@ def run_model(train_data: Dataset, test_data: Dataset, dataset: Dataset):
             }
             results.append(result)
             
-            print(f"Dataset = {dataset.name}")
-            print(f"✅ {name} done:")
-            print(
-                f"   Accuracy = {acc:.3f}, F1 = {f1:.3f}, Time = {elapsed:.3f}s, "
-                f"Throughput = {throughput:.2f} samples/s"
-            )
+            logger.log(f"Dataset = {dataset.name}")
+            logger.log(f"✅ {name} done:")
+            logger.log(f"   Accuracy = {acc:.3f}, F1 = {f1:.3f}, Time = {elapsed:.3f}s, Throughput = {throughput:.2f} samples/s")
             
         except Exception as e:
             error_msg = str(e)
-            print(f"❌ Error running {name} on dataset {dataset.name}:")
-            print(f"   {error_msg}")
+            logger.log(f"❌ Error running {name} on dataset {dataset.name}:")
+            logger.log(f"   {error_msg}")
             
             # Check if it's a GPU-related error and suggest fallback
             if any(keyword in error_msg.lower() for keyword in ['gpu', 'cuda', 'jit', 'device']):
-                print(f"   GPU-related error detected. Consider running with CPU only.")
-                print(f"   You can set: os.environ['CUDA_VISIBLE_DEVICES'] = ''")
+                logger.log(f"   GPU-related error detected. Consider running with CPU only.")
+                logger.log(f"   You can set: os.environ['CUDA_VISIBLE_DEVICES'] = ''")
             
             traceback.print_exc()
             
@@ -518,18 +543,16 @@ def run_model(train_data: Dataset, test_data: Dataset, dataset: Dataset):
                     pass
             
             # Add error record
-            results.append(
-                {
-                    "model": name,
-                    "dataset": dataset.name,
-                    "error": error_msg,
-                    "accuracy": None,
-                    "f1_score": None,
-                    "eval_seconds": None,
-                    "throughput_samples_per_s": None,
-                    "n_samples": None,
-                }
-            )
+            results.append({
+                "model": name,
+                "dataset": dataset.name,
+                "error": error_msg,
+                "accuracy": None,
+                "f1_score": None,
+                "eval_seconds": None,
+                "throughput_samples_per_s": None,
+                "n_samples": None,
+            })
 
     return results
 
@@ -543,34 +566,31 @@ all_results = []
 
 for dataset in all_dataset:
     if dataset is None:
-        print(f"Skipping None dataset")
+        logger.log(f"Skipping None dataset")
         continue
 
     try:
-        print(f"\n\n" + "=" * 50)
-        print(f"Starting experiments for dataset: {dataset.name}")
-        print("=" * 50)
+        logger.log(f"\n\n" + "=" * 50)
+        logger.log(f"Starting experiments for dataset: {dataset.name}")
+        logger.log("=" * 50)
 
         train_data, test_data = create_data(dataset)
         results = run_model(train_data, test_data, dataset)
         all_results.extend(results)
 
     except Exception as e:
-        print(f"❌ Error processing dataset {dataset.name}:")
-        print(f"   {str(e)}")
-        traceback.print_exc()
-
+        logger.log(f"❌ Error processing dataset {dataset.name}:")
+        logger.log(f"   {str(e)}")
+        
         # Add error record to results
-        all_results.append(
-            {
-                "dataset": dataset.name,
-                "error": str(e),
-                "accuracy": None,
-                "f1_score": None,
-            }
-        )
+        all_results.append({
+            "dataset": dataset.name,
+            "error": str(e),
+            "accuracy": None,
+            "f1_score": None,
+        })
 
-print(f"\n\nAll experiments completed. Total results: {len(all_results)}")
+logger.log(f"\n\nAll experiments completed. Total results: {len(all_results)}")
 
 # =============================================================================
 # RESULTS ANALYSIS AND VISUALIZATION
@@ -579,19 +599,34 @@ print(f"\n\nAll experiments completed. Total results: {len(all_results)}")
 # Convert results to DataFrame for easy analysis
 results_df = pd.DataFrame(all_results)
 
+# Save raw results to CSV
+results_csv_path = os.path.join(OUTPUT_DIR, f"experiment_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv")
+results_df.to_csv(results_csv_path, index=False)
+logger.log(f"Raw results saved to: {results_csv_path}")
+
 # Filter out error records
 valid_results = results_df.dropna(subset=["accuracy"]).copy()
 
 if not valid_results.empty:
     # Display summary table
-    print("Summary of experiment results:")
+    logger.log("Summary of experiment results:")
     summary = valid_results.pivot_table(
         index="dataset",
         columns="model",
         values=["accuracy", "f1_score", "eval_seconds"],
         aggfunc="mean",
     )
-    display(summary)
+    
+    # Save summary to CSV
+    summary_csv_path = os.path.join(OUTPUT_DIR, f"experiment_summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv")
+    summary.to_csv(summary_csv_path)
+    logger.log(f"Summary table saved to: {summary_csv_path}")
+    
+    # Log summary to text file
+    with open(os.path.join(OUTPUT_DIR, f"summary_table_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"), 'w') as f:
+        f.write("EXPERIMENT SUMMARY\n")
+        f.write("==================\n\n")
+        f.write(str(summary))
 
     # Plot accuracy comparison
     plt.figure(figsize=(14, 8))
@@ -599,7 +634,10 @@ if not valid_results.empty:
     plt.title("Model Accuracy by Dataset")
     plt.xticks(rotation=45, ha="right")
     plt.tight_layout()
-    plt.show()
+    accuracy_plot_path = os.path.join(OUTPUT_DIR, f"accuracy_comparison_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png")
+    plt.savefig(accuracy_plot_path, dpi=300, bbox_inches='tight')
+    plt.close()
+    logger.log(f"Accuracy plot saved to: {accuracy_plot_path}")
 
     # Plot F1-score comparison
     plt.figure(figsize=(14, 8))
@@ -607,7 +645,10 @@ if not valid_results.empty:
     plt.title("Model F1-Score by Dataset")
     plt.xticks(rotation=45, ha="right")
     plt.tight_layout()
-    plt.show()
+    f1_plot_path = os.path.join(OUTPUT_DIR, f"f1_comparison_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png")
+    plt.savefig(f1_plot_path, dpi=300, bbox_inches='tight')
+    plt.close()
+    logger.log(f"F1-score plot saved to: {f1_plot_path}")
 
     # Plot evaluation time
     plt.figure(figsize=(14, 8))
@@ -615,25 +656,28 @@ if not valid_results.empty:
     plt.title("Model Evaluation Time by Dataset")
     plt.xticks(rotation=45, ha="right")
     plt.tight_layout()
-    plt.show()
+    time_plot_path = os.path.join(OUTPUT_DIR, f"evaluation_time_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png")
+    plt.savefig(time_plot_path, dpi=300, bbox_inches='tight')
+    plt.close()
+    logger.log(f"Evaluation time plot saved to: {time_plot_path}")
 
 else:
-    print("No valid results to visualize.")
+    logger.log("No valid results to visualize.")
 
 # Print error summary if there were any errors
 errors = results_df[results_df["error"].notna()]
 if not errors.empty:
-    print("\nErrors encountered:")
-    for _, row in errors.iterrows():
-        print(
-            f"Dataset: {row.get('dataset', 'unknown')}, "
-            f"Model: {row.get('model', 'unknown')}"
-        )
-        print(f"Error: {row['error']}")
-        print("-" * 50)
-        print(
-            f"Dataset: {row.get('dataset', 'unknown')}, Model: {row.get('model', 'unknown')}"
-        )
-        print(f"Error: {row['error']}")
-        print("-" * 50)
+    logger.log("\nErrors encountered:")
+    error_summary_path = os.path.join(OUTPUT_DIR, f"error_summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt")
+    with open(error_summary_path, 'w') as f:
+        f.write("ERROR SUMMARY\n")
+        f.write("=============\n\n")
+        for _, row in errors.iterrows():
+            error_msg = f"Dataset: {row.get('dataset', 'unknown')}, Model: {row.get('model', 'unknown')}\nError: {row['error']}\n" + "-" * 50 + "\n"
+            logger.log(error_msg.strip())
+            f.write(error_msg)
+    
+    logger.log(f"Error summary saved to: {error_summary_path}")
+
+logger.log(f"\nAll results and visualizations saved to: {OUTPUT_DIR}")
 
