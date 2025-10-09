@@ -198,7 +198,7 @@ class TrajFormerModel(Model):
             optimizer = torch.optim.Adam(self.model.parameters(), lr=kwargs.get("learning_rate", 0.001))
             criterion = nn.CrossEntropyLoss().to(self.device)
 
-            n_epochs = kwargs.get("n_epochs", 10)
+            n_epochs = kwargs.get("n_epochs", 20)
             self.model.train()
 
             for epoch in range(n_epochs):
