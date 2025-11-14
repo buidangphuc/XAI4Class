@@ -1,118 +1,56 @@
-# =============================================================================
-# IMPORTS (ESSENTIAL)
-# =============================================================================
-import os
+# -*- coding: utf-8 -*-
+# Experiment with RandomForestModel and UniversalFeaturizer
 
-# =============================================================================
-# CONFIGURATION
-# =============================================================================
+#!/usr/bin/env python
+# coding: utf-8
+
+# In[1]:
+
+
 SEED = 3112
 NO_OF_EPOCHS = 20
 BATCH_SIZE = 32
 
-# Output directory for results
-OUTPUT_DIR = "/Users/phuc.buidang/Documents/UIT/XAI/results"
-os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-# =============================================================================
-# IMPORTS
-# =============================================================================
-import ast
-import io
-import re
-import time
-import contextlib
-import traceback
-# from collections import Counter
-from datetime import datetime
+# In[2]:
 
+
+# Import necessary libraries
+import os
 import pandas as pd
 import numpy as np
+import pickle
 import matplotlib.pyplot as plt
-import seaborn as sns
-
-# TensorFlow GPU configuration
-import tensorflow as tf
-
-# Configure TensorFlow GPU settings
-try:
-    # Disable JIT compilation which can cause issues with some GPU setups
-    tf.config.optimizer.set_jit(False)
-    
-    # Get GPU devices
-    gpus = tf.config.experimental.list_physical_devices('GPU')
-    if gpus:
-        try:
-            # Use only the first GPU and enable memory growth
-            gpu = gpus[0]  # Select only the first GPU
-            tf.config.experimental.set_visible_devices([gpu], 'GPU')
-            tf.config.experimental.set_memory_growth(gpu, True)
-            print(f"GPU configuration successful. Using GPU: {gpu.name} with memory growth enabled")
-        except RuntimeError as e:
-            print(f"GPU configuration error: {e}")
-            # Force CPU usage if GPU configuration fails
-            tf.config.set_visible_devices([], 'GPU')
-            print("Falling back to CPU")
-    else:
-        print("No GPUs found, using CPU")
-except Exception as e:
-    print(f"TensorFlow configuration error: {e}")
-    print("Continuing with default TensorFlow settings")
-
 from yupi import Trajectory
 from pactus import Dataset
-from pactus.models import LSTMModel
+import time
+from .models import TrajFormerModel
 
-from models.gru.simple_gru_model import SimpleGRUModel
-from models.trajformer.trajformer_model import TrajFormerModel
-
-# =============================================================================
-# PANDAS DISPLAY CONFIGURATION
-# =============================================================================
+# Set display options for better visualization
 pd.set_option("display.max_columns", None)
 pd.set_option("display.expand_frame_repr", False)
 
-# =============================================================================
-# CONSTANTS
-# =============================================================================
-BASE_DIR = "/home/phucbuidang/Work/XAI4Class/dataset"
+# Define the base directory for all datasets
+BASE_DIR = "/home/phucbuidang/Work/XAI/dataset"
 
-# =============================================================================
-# FILE OUTPUT UTILITIES
-# =============================================================================
 
-class FileLogger:
-    def __init__(self, output_dir):
-        self.output_dir = output_dir
-        self.log_file = os.path.join(output_dir, f"experiment_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt")
-        
-    def log(self, message):
-        """Write message to both console and log file"""
-        print(message)
-        with open(self.log_file, 'a', encoding='utf-8') as f:
-            f.write(message + '\n')
+# In[3]:
 
-# Initialize logger
-logger = FileLogger(OUTPUT_DIR)
 
-# =============================================================================
-# DATASET LOADING FUNCTIONS
-# =============================================================================
+# 1. Import Animals Dataset
+# Based on animals.py script
 
 
 def load_animals_dataset():
-    """
-    Load the animals dataset from CSV file.
-    
-    Returns:
-        Dataset: Animals dataset or None if loading fails
-    """
     try:
+        # Path to the all_data.csv file
         animals_csv_path = os.path.join(BASE_DIR, "animals/train_csv/all_data.csv")
 
         if os.path.exists(animals_csv_path):
+            # Read the CSV file
             df = pd.read_csv(animals_csv_path)
 
+            # Group data by trajectory (index and trajectory_name combination)
             trajs = []
             labels = []
 
@@ -137,36 +75,47 @@ def load_animals_dataset():
 
             # Create a pactus Dataset
             animals_ds = Dataset("animals", trajs, labels)
-            if animals_ds:
-                msg = f"Animals dataset loaded from CSV: {len(trajs)} trajectories with labels {set(labels)}"
-                logger.log(msg)
-                return animals_ds
-            else:
-                logger.log(f"Animals CSV file not found at {animals_csv_path}")
-                return None
+            print(
+                f"Animals dataset loaded from CSV: {len(trajs)} trajectories with labels {set(labels)}"
+            )
+            return animals_ds
         else:
-            logger.log(f"Animals CSV file not found at {animals_csv_path}")
+            print(f"Animals CSV file not found at {animals_csv_path}")
             return None
 
     except Exception as e:
-        logger.log(f"Error loading animals dataset: {e}")
+        print(f"Error loading animals dataset: {e}")
         return None
 
 
+# Load the animals dataset
+# animals_local_dataset = load_animals_dataset()
+
+# # Display a summary if loaded successfully
+# if animals_local_dataset is not None:
+#     print(f"Dataset name: {animals_local_dataset.name}")
+#     print(f"Labels: {set(animals_local_dataset.labels)}")
+
+
+# In[4]:
+
+
+# 2. Import Seabird Dataset
+# Based on seabird.py script
+
+
 def load_seabird_dataset():
-    """
-    Load the seabird dataset from CSV file.
-    
-    Returns:
-        Dataset: Seabird dataset or None if loading fails
-    """
     try:
+        # Path to the seabird CSV file
         seabird_csv_path = os.path.join(
             BASE_DIR, "seabird/anon_gps_tracks_with_dive.csv"
         )
 
         if os.path.exists(seabird_csv_path):
+            # Read the CSV file
             df = pd.read_csv(seabird_csv_path)
+
+            # Group data by bird
             grouped = df.groupby("bird")
 
             trajs = []
@@ -180,7 +129,6 @@ def load_seabird_dataset():
                     z=group["alt"].tolist() if "alt" in group.columns else None,
                 )
                 trajs.append(traj)
-                
                 # Use species as label
                 labels.append(
                     group["species"].iloc[0]
@@ -190,33 +138,44 @@ def load_seabird_dataset():
 
             # Create a pactus Dataset
             seabird_ds = Dataset("seabird", trajs, labels)
-            if seabird_ds:
-                msg = f"Seabird dataset loaded: {len(trajs)} trajectories with labels {set(labels)}"
-                logger.log(msg)
-                return seabird_ds
-            else:
-                logger.log(f"Seabird CSV file not found at {seabird_csv_path}")
-                return None
+            print(
+                f"Seabird dataset loaded: {len(trajs)} trajectories with labels {set(labels)}"
+            )
+            return seabird_ds
         else:
-            logger.log(f"Seabird CSV file not found at {seabird_csv_path}")
+            print(f"Seabird CSV file not found at {seabird_csv_path}")
             return None
 
     except Exception as e:
-        logger.log(f"Error loading seabird dataset: {e}")
+        print(f"Error loading seabird dataset: {e}")
         return None
 
 
+# Load the seabird dataset
+seabird_dataset = load_seabird_dataset()
+
+# Display a summary if loaded successfully
+if seabird_dataset is not None:
+    print(f"Dataset name: {seabird_dataset.name}")
+    print(f"Labels: {set(seabird_dataset.labels)}")
+
+
+# In[5]:
+
+
+import ast
+
+# 3. Import Taxi Dataset
+# Based on the taxi data format which contains polyline coordinates
+
+
 def load_taxi_dataset():
-    """
-    Load the taxi dataset from CSV file containing polyline coordinates.
-    
-    Returns:
-        Dataset: Taxi dataset or None if loading fails
-    """
     try:
+        # Path to the taxi data CSV file
         taxi_csv_path = os.path.join(BASE_DIR, "taxi/train.csv")
 
         if os.path.exists(taxi_csv_path):
+            # Read the CSV file with appropriate handling for the POLYLINE column
             df = pd.read_csv(taxi_csv_path)
 
             trajs = []
@@ -231,7 +190,7 @@ def load_taxi_dataset():
 
                     # Skip if there aren't enough points to form a trajectory
                     if len(polyline) < 2:
-                        logger.log(f"Skipping row {idx}: Not enough points in trajectory")
+                        print(f"Skipping row {idx}: Not enough points in trajectory")
                         continue
 
                     # Extract x (longitude) and y (latitude) coordinates
@@ -252,39 +211,53 @@ def load_taxi_dataset():
                     labels.append(row["CALL_TYPE"])
 
                 except Exception as e:
-                    logger.log(f"Error processing taxi row {idx}: {e}")
+                    print(f"Error processing taxi row {idx}: {e}")
                     continue
 
             # Create dataset if we have valid trajectories
             if trajs:
                 taxi_ds = Dataset("taxi", trajs, labels)
-                msg = f"Taxi dataset loaded: {len(trajs)} trajectories with labels {set(labels)}"
-                logger.log(msg)
+                print(
+                    f"Taxi dataset loaded: {len(trajs)} trajectories with labels {set(labels)}"
+                )
                 return taxi_ds
             else:
-                logger.log("No taxi trajectories were loaded.")
+                print("No taxi trajectories were loaded.")
                 return None
         else:
-            logger.log(f"Taxi CSV file not found at {taxi_csv_path}")
+            print(f"Taxi CSV file not found at {taxi_csv_path}")
             return None
 
     except Exception as e:
-        logger.log(f"Error loading taxi dataset: {e}")
+        print(f"Error loading taxi dataset: {e}")
         return None
 
 
+# # Load the taxi dataset
+# taxi_dataset = load_taxi_dataset()
+
+# # Display a summary if loaded successfully
+# if taxi_dataset is not None:
+#     print(f"Dataset name: {taxi_dataset.name}")
+#     print(f"Labels: {set(taxi_dataset.labels)}")
+
+
+# In[6]:
+
+
+# 4. Import Vehicle Dataset
+# Using similar approach as animals.py for processing vehicle data files
+
+
 def load_vehicle_dataset():
-    """
-    Load the vehicle dataset from train and test directories.
-    
-    Returns:
-        Dataset: Vehicle dataset or None if loading fails
-    """
     try:
+        # Directories for vehicle data
         train_dir = os.path.join(BASE_DIR, "vehicle/train")
         test_dir = os.path.join(BASE_DIR, "vehicle/test")
 
         # Regex pattern to parse filenames like "001 s30902 cB.r2"
+        import re
+
         FILENAME_RE = re.compile(
             r"""^\s*
             (?P<index>\d+)
@@ -351,7 +324,7 @@ def load_vehicle_dataset():
                             if point:
                                 points.append(point)
                 except Exception as e:
-                    logger.log(f"Error reading {file_path}: {e}")
+                    print(f"Error reading {file_path}: {e}")
                     continue
 
                 if not points:
@@ -372,82 +345,98 @@ def load_vehicle_dataset():
                     trajs.append(traj)
                     labels.append(label)
                 except Exception as e:
-                    logger.log(f"Error creating trajectory for {file_path}: {e}")
+                    print(f"Error creating trajectory for {file_path}: {e}")
                     continue
 
         # Create a pactus Dataset if we have trajectories
         if trajs:
             vehicle_ds = Dataset("vehicle", trajs, labels)
-            msg = f"Vehicle dataset loaded: {len(trajs)} trajectories with labels {set(labels)}"
-            logger.log(msg)
+            print(
+                f"Vehicle dataset loaded: {len(trajs)} trajectories with labels {set(labels)}"
+            )
             return vehicle_ds
         else:
-            logger.log("No vehicle trajectories were loaded.")
+            print("No vehicle trajectories were loaded.")
             return None
 
     except Exception as e:
-        logger.log(f"Error loading vehicle dataset: {e}")
+        print(f"Error loading vehicle dataset: {e}")
         return None
 
 
-# =============================================================================
-# LOAD DATASETS
-# =============================================================================
+# Load the vehicle dataset
+vehicle_dataset = load_vehicle_dataset()
 
-# Load custom datasets
-animals_loaded_dataset = load_animals_dataset()
-seabird_dataset = load_seabird_dataset()
-# taxi_dataset = load_taxi_dataset()
-# vehicle_dataset = load_vehicle_dataset()
+# Display a summary if loaded successfully
+if vehicle_dataset is not None:
+    print(f"Dataset name: {vehicle_dataset.name}")
+    print(f"Labels: {set(vehicle_dataset.labels)}")
 
-# Display summaries to file
-logger.log("=== DATASET SUMMARIES ===")
-# for dataset in [animals_loaded_dataset, seabird_dataset, taxi_dataset, vehicle_dataset]:
-for dataset in [animals_loaded_dataset, seabird_dataset]:
-    if dataset is not None:
-        logger.log(f"Dataset name: {dataset.name}")
-        logger.log(f"Labels: {set(dataset.labels)}")
 
-# Load built-in datasets
+# In[7]:
+
+
+from pactus import Dataset
+
 geolife_dataset = Dataset.geolife()
 animals_dataset = Dataset.animals()
-hurdat2_dataset = Dataset.hurdat2()
-cma_bst_dataset = Dataset.cma_bst()
-mnist_stroke_dataset = Dataset.mnist_stroke()
-uci_pen_digits_dataset = Dataset.uci_pen_digits()
+# hurdat2_dataset = Dataset.hurdat2()
+# cma_bst_dataset = Dataset.cma_bst()
+# mnist_stroke_dataset = Dataset.mnist_stroke()
+# uci_pen_digits_dataset = Dataset.uci_pen_digits()
 uci_gotrack_dataset = Dataset.uci_gotrack()
-uci_characters_dataset = Dataset.uci_characters()
+# uci_characters_dataset = Dataset.uci_characters()
 uci_movement_libras_dataset = Dataset.uci_movement_libras()
+traffic_dataset = Dataset.traffic()
 
-# =============================================================================
-# DATASET COLLECTION
-# =============================================================================
+
+# In[8]:
+
+
+# Import RandomForestModel and featurizers
+from pactus.models import RandomForestModel
+from pactus import featurizers
+
+
+# In[9]:
+
 
 all_dataset = [
-    geolife_dataset,
     animals_dataset,
-    animals_loaded_dataset,
-    hurdat2_dataset,
-    cma_bst_dataset,
-    mnist_stroke_dataset,
-    uci_pen_digits_dataset,
+    # hurdat2_dataset,
+    # animals_local_dataset,
+    # cma_bst_dataset,
+    # mnist_stroke_dataset,
+    # uci_pen_digits_dataset,
     uci_gotrack_dataset,
-    uci_characters_dataset,
+    # uci_characters_dataset,
     uci_movement_libras_dataset,
     seabird_dataset,
     # taxi_dataset,
-    # vehicle_dataset,
+    vehicle_dataset,
+    traffic_dataset,
+    geolife_dataset,
 ]
 
-# =============================================================================
-# UTILITY FUNCTIONS
-# =============================================================================
+
+# In[10]:
 
 
 def create_data(dataset: Dataset):
-    train, test = dataset.split(
-        train_size=0.7,
-        random_state=SEED,
+    # Define the classes to use (you can modify this list based on your needs)
+    use_classes = set(dataset.labels)  # Use all available classes by default
+    
+    # Create a processing pipeline with filters
+    train, test = (
+        dataset
+        # Remove short and poorly time sampled trajectories
+        .filter(lambda traj, _: len(traj) > 10 and traj.dt < 8)
+        # Join "taxi" and "bus" into "taxi-bus"
+        # .map(lambda _, label: (_, "taxi-bus" if label in ("bus", "taxi") else label))
+        # Only use the classes defined in use_classes
+        # .filter(lambda _, label: label in use_classes)
+        # Split the dataset into train and test
+        .split(train_size=0.7, random_state=SEED)
     )
 
     return train, test
@@ -468,17 +457,17 @@ def run_model(train_data: Dataset, test_data: Dataset, dataset: Dataset):
     results = []
 
     models = [
-        # ("TrajFormer", TrajFormerModel(c_out=len(dataset.classes))),
+        ("TrajFormer", TrajFormerModel(c_out=len(dataset.classes))),
         # ("GRU", SimpleGRUModel()),
-        ("LSTM", LSTMModel(
-            optimizer="rmsprop",
-            loss="sparse_categorical_crossentropy",
-            metrics=["accuracy"],
-        )),
+        # ("LSTM", LSTMModel(
+        #     optimizer="rmsprop",
+        #     loss="sparse_categorical_crossentropy",
+        #     metrics=["accuracy"],
+        # )),
     ]
 
     for name, model in models:
-        logger.log(f"\n===== Running {name} Experiment =====")
+        # logger.log(f"\n===== Running {name} Experiment =====")
 
         try:
             # Additional GPU memory clearing for TensorFlow models

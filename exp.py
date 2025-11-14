@@ -9,7 +9,7 @@
 
 SEED = 3112
 NO_OF_EPOCHS = 20
-BATCH_SIZE = 32
+BATCH_SIZE = 8
 
 
 # In[2]:
@@ -23,6 +23,7 @@ import pickle
 import matplotlib.pyplot as plt
 from yupi import Trajectory
 from pactus import Dataset
+# from loguru import logger
 
 # Set display options for better visualization
 pd.set_option("display.max_columns", None)
@@ -87,12 +88,12 @@ def load_animals_dataset():
 
 
 # Load the animals dataset
-animals_local_dataset = load_animals_dataset()
+# animals_local_dataset = load_animals_dataset()
 
-# Display a summary if loaded successfully
-if animals_local_dataset is not None:
-    print(f"Dataset name: {animals_local_dataset.name}")
-    print(f"Labels: {set(animals_local_dataset.labels)}")
+# # Display a summary if loaded successfully
+# if animals_local_dataset is not None:
+#     print(f"Dataset name: {animals_local_dataset.name}")
+#     print(f"Labels: {set(animals_local_dataset.labels)}")
 
 
 # In[4]:
@@ -378,12 +379,12 @@ from pactus import Dataset
 
 geolife_dataset = Dataset.geolife()
 animals_dataset = Dataset.animals()
-hurdat2_dataset = Dataset.hurdat2()
-cma_bst_dataset = Dataset.cma_bst()
-mnist_stroke_dataset = Dataset.mnist_stroke()
-uci_pen_digits_dataset = Dataset.uci_pen_digits()
+# hurdat2_dataset = Dataset.hurdat2()
+# cma_bst_dataset = Dataset.cma_bst()
+# mnist_stroke_dataset = Dataset.mnist_stroke()
+# uci_pen_digits_dataset = Dataset.uci_pen_digits()
 uci_gotrack_dataset = Dataset.uci_gotrack()
-uci_characters_dataset = Dataset.uci_characters()
+# uci_characters_dataset = Dataset.uci_characters()
 uci_movement_libras_dataset = Dataset.uci_movement_libras()
 traffic_dataset = Dataset.traffic()
 
@@ -400,20 +401,20 @@ from pactus import featurizers
 
 
 all_dataset = [
-    geolife_dataset,
     animals_dataset,
-    hurdat2_dataset,
-    animals_local_dataset,
+    # hurdat2_dataset,
+    # animals_local_dataset,
     # cma_bst_dataset,
-    mnist_stroke_dataset,
-    uci_pen_digits_dataset,
+    # mnist_stroke_dataset,
+    # uci_pen_digits_dataset,
     uci_gotrack_dataset,
-    uci_characters_dataset,
+    # uci_characters_dataset,
     uci_movement_libras_dataset,
     seabird_dataset,
     # taxi_dataset,
     vehicle_dataset,
     traffic_dataset,
+    # geolife_dataset,
 ]
 
 
@@ -421,19 +422,8 @@ all_dataset = [
 
 
 def create_data(dataset: Dataset):
-    # Define the classes to use (you can modify this list based on your needs)
-    use_classes = set(dataset.labels)  # Use all available classes by default
-    
-    # Create a processing pipeline with filters
     train, test = (
         dataset
-        # Remove short and poorly time sampled trajectories
-        .filter(lambda traj, _: len(traj) > 10 and traj.dt < 8)
-        # Join "taxi" and "bus" into "taxi-bus"
-        # .map(lambda _, label: (_, "taxi-bus" if label in ("bus", "taxi") else label))
-        # Only use the classes defined in use_classes
-        # .filter(lambda _, label: label in use_classes)
-        # Split the dataset into train and test
         .split(train_size=0.7, random_state=SEED)
     )
 
@@ -441,6 +431,7 @@ def create_data(dataset: Dataset):
 
 
 # In[11]:
+from models.trajformer.trajformer_model import TrajFormerModel
 
 
 import io
@@ -453,33 +444,25 @@ import traceback
 def run_model(train_data: Dataset, test_data: Dataset, dataset: Dataset):
     results = []
 
-    # Create UniversalFeaturizer
-    featurizer = featurizers.UniversalFeaturizer()
-    
-    # Create RandomForestModel with specified parameters
-    model = RandomForestModel(
-        featurizer=featurizer,
-        max_features=16,
-        n_estimators=200,
-        bootstrap=False,
-        random_state=SEED,
-        warm_start=True,
-        n_jobs=6,
-    )
-
     models = [
-        ("RandomForest_Universal", model),
+        ("TrajFormer", TrajFormerModel(c_out=len(dataset.classes))),
+        # ("GRU", SimpleGRUModel()),
+        # ("LSTM", LSTMModel()),
     ]
 
     for name, model in models:
         print(f"\n===== Running {name} Experiment =====")
 
         try:
-            # --- Train + Evaluate (đo thời gian giống run_tif.py) ---
+            # --- Train ---
+            model.train(train_data, dataset, epochs=NO_OF_EPOCHS, batch_size=BATCH_SIZE)
             t0 = time.perf_counter()
-            model.train(train_data, cross_validation=5)
+            # --- Inference (đo thời gian infer) ---
+            predictions = model.predict(test_data)
+
+            # --- Evaluate để lấy accuracy/f1 ---
             evaluation = model.evaluate(test_data)
-            elapsed = time.perf_counter() - t0
+            inference_time = time.perf_counter() - t0
 
             # --- Capture output từ evaluation.show() ---
             buf = io.StringIO()
@@ -492,18 +475,12 @@ def run_model(train_data: Dataset, test_data: Dataset, dataset: Dataset):
             f1 = re.search(r"F1-score:\s*([0-9.]+)", out)
             acc = float(acc.group(1)) if acc else None
             f1 = float(f1.group(1)) if f1 else None
-            
-            # Also try to parse Mean precision and Mean recall if available
-            precision = re.search(r"Mean precision:\s*([0-9.]+)", out)
-            recall = re.search(r"Mean recall:\s*([0-9.]+)", out)
-            precision = float(precision.group(1)) if precision else None
-            recall = float(recall.group(1)) if recall else None
 
             try:
                 n_samples = len(test_data)
             except Exception:
                 n_samples = len(getattr(evaluation, "y_true", [])) or None
-            throughput = (n_samples / elapsed) if (n_samples and elapsed > 0) else None
+            throughput = (n_samples / inference_time) if (n_samples and inference_time > 0) else None
 
             # --- Lưu kết quả ---
             result = {
@@ -511,22 +488,15 @@ def run_model(train_data: Dataset, test_data: Dataset, dataset: Dataset):
                 "dataset": dataset.name,
                 "accuracy": acc,
                 "f1_score": f1,
-                "mean_precision": precision,
-                "mean_recall": recall,
-                "total_seconds": elapsed,  # Total time: train + eval (giống run_tif.py)
+                "inference_seconds": inference_time,
                 "throughput_samples_per_s": throughput,
                 "n_samples": n_samples,
             }
             results.append(result)
             print(f"Dataset = {dataset.name}")
             print(f"✅ {name} done:")
-            acc_str = f"{acc:.3f}" if acc is not None else "N/A"
-            f1_str = f"{f1:.3f}" if f1 is not None else "N/A"
-            prec_str = f"{precision:.3f}" if precision is not None else "N/A"
-            recall_str = f"{recall:.3f}" if recall is not None else "N/A"
-            throughput_str = f"{throughput:.2f}" if throughput is not None else "N/A"
             print(
-                f"   Accuracy = {acc_str}, F1 = {f1_str}, Precision = {prec_str}, Recall = {recall_str}, Total time = {elapsed:.3f}s, Throughput = {throughput_str} samples/s"
+                f"   Accuracy = {acc:.3f}, F1 = {f1:.3f}, Inference Time = {inference_time:.3f}s, Throughput = {throughput:.2f} samples/s"
             )
         except Exception as e:
             print(f"❌ Error running {name} on dataset {dataset.name}:")
@@ -540,8 +510,6 @@ def run_model(train_data: Dataset, test_data: Dataset, dataset: Dataset):
                     "error": str(e),
                     "accuracy": None,
                     "f1_score": None,
-                    "mean_precision": None,
-                    "mean_recall": None,
                 }
             )
 
@@ -581,8 +549,6 @@ for dataset in all_dataset:
                 "error": str(e),
                 "accuracy": None,
                 "f1_score": None,
-                "mean_precision": None,
-                "mean_recall": None,
             }
         )
 
@@ -603,65 +569,20 @@ results_df = pd.DataFrame(all_results)
 # Filter out error records
 valid_results = results_df.dropna(subset=["accuracy"]).copy()
 
-if not valid_results.empty:
-    # Display summary table
-    print("Summary of experiment results:")
-    summary = valid_results.pivot_table(
-        index="dataset",
-        columns="model",
-        values=["accuracy", "f1_score", "mean_precision", "mean_recall", "total_seconds"],
-        aggfunc="mean",
-    )
-    print(summary)
-
-    # Plot accuracy comparison
-    plt.figure(figsize=(14, 8))
-    sns.barplot(x="dataset", y="accuracy", hue="model", data=valid_results)
-    plt.title("RandomForest with UniversalFeaturizer - Accuracy by Dataset")
-    plt.xticks(rotation=45, ha="right")
-    plt.tight_layout()
-    plt.show()
-
-    # Plot F1-score comparison
-    plt.figure(figsize=(14, 8))
-    sns.barplot(x="dataset", y="f1_score", hue="model", data=valid_results)
-    plt.title("RandomForest with UniversalFeaturizer - F1-Score by Dataset")
-    plt.xticks(rotation=45, ha="right")
-    plt.tight_layout()
-    plt.show()
-
-    # Plot total time (train + eval)
-    plt.figure(figsize=(14, 8))
-    sns.barplot(x="dataset", y="total_seconds", hue="model", data=valid_results)
-    plt.title("RandomForest with UniversalFeaturizer - Total Time (Train + Eval) by Dataset")
-    plt.xticks(rotation=45, ha="right")
-    plt.tight_layout()
-    plt.show()
-
-    # Plot throughput
-    if "throughput_samples_per_s" in valid_results.columns:
-        plt.figure(figsize=(14, 8))
-        sns.barplot(x="dataset", y="throughput_samples_per_s", hue="model", data=valid_results)
-        plt.title("RandomForest with UniversalFeaturizer - Throughput by Dataset")
-        plt.xticks(rotation=45, ha="right")
-        plt.ylabel("Samples per second")
-        plt.tight_layout()
-        plt.show()
-        
-else:
-    print("No valid results to visualize.")
-
 # Print error summary if there were any errors
-errors = results_df[results_df["error"].notna()]
-if not errors.empty:
-    print("\nErrors encountered:")
-    for _, row in errors.iterrows():
-        print(
-            f"Dataset: {row.get('dataset', 'unknown')}, Model: {row.get('model', 'unknown')}"
-        )
-        print(f"Error: {row['error']}")
-        print("-" * 50)
+if 'error' in results_df.columns:
+    errors = results_df[results_df["error"].notna()]
+    if not errors.empty:
+        print("\nErrors encountered:")
+        for _, row in errors.iterrows():
+            print(
+                f"Dataset: {row.get('dataset', 'unknown')}, Model: {row.get('model', 'unknown')}"
+            )
+            print(f"Error: {row['error']}")
+            print("-" * 50)
+else:
+    print("\nNo errors encountered during experiments.")
 
 # Save results to CSV for later analysis
-results_df.to_csv("experiment4_results.csv", index=False)
-print(f"\nResults saved to experiment4_results.csv")
+results_df.to_csv("experiment668_results.csv", index=False)
+print(f"\nResults saved to experiment668_results.csv")
